@@ -55,10 +55,10 @@ func RunETL(ctx context.Context, runId string, logger *zap.Logger) error {
 func NewLogger(runId string) (*zap.Logger, error) {
 	cfg := zap.NewProductionConfig()
 	cfg.OutputPaths = []string{
-		fmt.Sprintf("./log_%s.json", runId),
+		fmt.Sprintf("./log.json"),
 	}
 	cfg.ErrorOutputPaths = []string{
-		fmt.Sprintf("./log_errors_%s.json", runId),
+		fmt.Sprintf("./log_errors.json"),
 		"stderr",
 	}
 	l, err := cfg.Build()
