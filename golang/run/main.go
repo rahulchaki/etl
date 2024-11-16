@@ -7,8 +7,12 @@ import (
 	"encoding/json"
 	"etl"
 	"fmt"
+	"github.com/customerio/services/campaigns/subjects"
 	"github.com/customerio/services/ciocontext"
+	"github.com/customerio/services/ciofdb"
 	"github.com/customerio/services/scripts_rc"
+	"github.com/customerio/services/server"
+	ui_api "github.com/customerio/services/ui_api/run"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"net/http"
@@ -19,12 +23,13 @@ import (
 	"time"
 )
 
-func RunETL(ctx context.Context, runId string, logger *zap.Logger) error {
+func RunETL(ctx context.Context, logger *zap.Logger) error {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 	now := time.Now()
+	runId := strings.ReplaceAll(strings.ReplaceAll(now.Format(time.DateTime), " ", "_"), ":", "-")
 	outputDir := homeDir + "/data/deliveries_" + runId
 	readParallelismPerShard := 10
 	writeParallelismPerShard := 10
@@ -73,16 +78,10 @@ func NewLogger(runId string) (*zap.Logger, error) {
 	return l, nil
 }
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	defer cancel()
-
-	runId := strings.ReplaceAll(strings.ReplaceAll(time.Now().Format(time.DateTime), " ", "_"), ":", "-")
-	logger, _ := NewLogger(runId)
-	err := RunETL(ctx, runId, logger)
-	if err != nil {
-		logger.Error("Error while Running ETL", zap.Error(err))
-	}
+	server.Run(
+		server.WithInit(ciofdb.Init, subjects.Init, ui_api.InitLiquid),
+		server.WithOnce(RunETL),
+	)
 }
 
 type DeliveryDBRecord struct {
