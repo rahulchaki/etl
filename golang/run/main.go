@@ -94,7 +94,7 @@ func cioDeliveryExtract() etl.ElementProcessor[etl.DBRecord[DeliveryDBRecord]] {
 		requestBuilder = func(records []*etl.DBRecord[DeliveryDBRecord]) (*http.Request, error) {
 			v := url.Values{}
 			v.Add("env_id", strings.Split(records[0].DataBase, "production_env")[1])
-			v.Add("include_liquid_response", "true")
+			v.Add("include_liquid_response", "false")
 
 			deliveryIds := make([]string, 0, len(records))
 			for _, record := range records {
