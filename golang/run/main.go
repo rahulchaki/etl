@@ -8,7 +8,7 @@ import (
 	"etl"
 	"fmt"
 	"github.com/customerio/services/ciocontext"
-	"github.com/customerio/services/scripts_rc/render_requests"
+	"github.com/customerio/services/scripts_rc"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"net/http"
@@ -166,7 +166,7 @@ func (d *DeliverRenderRequest) ProcessBatch(records []*etl.DBRecord[DeliveryDBRe
 	for _, record := range records {
 		uuids = append(uuids, record.Record.Id)
 	}
-	results, err := render_requests.DeliveryRenderRequest(ctx, uuids)
+	results, err := scripts_rc.DeliveryRenderRequest(ctx, uuids)
 	if err != nil {
 		return nil, err
 	}
