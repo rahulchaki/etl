@@ -22,9 +22,9 @@ func RunETL(ctx context.Context, runId string, logger *zap.Logger) error {
 	}
 	now := time.Now()
 	outputDir := homeDir + "/data/deliveries_" + runId
-	readParallelismPerShard := 10
-	writeParallelismPerShard := 10
-	recordBatchSize := 100
+	readParallelismPerShard := 2
+	writeParallelismPerShard := 2
+	recordBatchSize := 50
 	sinkFactory := etl.NewFSSinkFactory(outputDir, etl.ENCODER_JSON)
 	var hosts = CIO_HOSTS // []string{"localhost"}
 	source, err := etl.NewMySQLSource[DeliveryDBRecord](hosts, "root", "production_env*", "delivs_2024_11")
