@@ -1,7 +1,6 @@
 package etl
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -35,16 +34,12 @@ func (s IdentityMapper[T]) Process(record *DBRecord[T]) *ProcessedRecord {
 }
 
 type HTTPMapper[T any] struct {
-	host             string
-	path             string
-	toRequestPayload func(record []*T) ([]byte, error)
+	requestBuilder func(record []*T) (*http.Request, error)
 }
 
-func NewHTTPPostMapper[T any](host string, path string, toRequestPayload func(record []*T) ([]byte, error)) ElementProcessor[T] {
+func NewHTTPPostMapper[T any](requestBuilder func(record []*T) (*http.Request, error)) ElementProcessor[T] {
 	return &HTTPMapper[T]{
-		host:             host,
-		path:             path,
-		toRequestPayload: toRequestPayload,
+		requestBuilder: requestBuilder,
 	}
 
 }
@@ -59,15 +54,12 @@ func (s *HTTPMapper[T]) ProcessBatch(records []*T) ([]*ProcessedRecord, error) {
 	if len(records) == 0 {
 		return []*ProcessedRecord{}, nil
 	}
-	requestPayload, err := s.toRequestPayload(records)
+	request, err := s.requestBuilder(records)
 	if err != nil {
 		return nil, err
 	}
-	response, err := http.DefaultClient.Post(
-		fmt.Sprintf("http://%s/%s", s.host, s.path),
-		"application/json",
-		bytes.NewBuffer(requestPayload),
-	)
+
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return nil, err
 	}

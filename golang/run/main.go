@@ -1,14 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"etl"
 	"fmt"
 	"go.uber.org/zap"
+	"net/http"
+	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -87,27 +89,42 @@ var CIO_HOSTS = []string{"shard-106462", "shard-111029", "shard-111991", "shard-
 
 func cioDeliveryExtract() etl.ElementProcessor[etl.DBRecord[DeliveryDBRecord]] {
 	var (
-		host             = "0.0.0.0:9037"
-		path             = "v1/rc/render_deliveries"
-		toRequestPayload = func(records []*etl.DBRecord[DeliveryDBRecord]) ([]byte, error) {
-			env, err := strconv.Atoi(strings.Split(records[0].DataBase, "production_env")[1])
-			if err != nil {
-				return nil, err
-			}
+		host           = "0.0.0.0:9037"
+		path           = "v1/rc/render_deliveries"
+		requestBuilder = func(records []*etl.DBRecord[DeliveryDBRecord]) (*http.Request, error) {
+			v := url.Values{}
+			v.Add("env_id", strings.Split(records[0].DataBase, "production_env")[1])
+			v.Add("include_liquid_response", "true")
+
 			deliveryIds := make([]string, 0, len(records))
 			for _, record := range records {
 				deliveryIds = append(deliveryIds, base64.URLEncoding.EncodeToString(record.Record.Id))
 			}
 			payload := map[string]interface{}{
-				"env":                     env,
-				"delivery_ids":            deliveryIds,
-				"include_liquid_response": false,
+				"delivery_ids": deliveryIds,
 			}
-			payloadBytes, _ := json.Marshal(payload)
-			return payloadBytes, nil
+			payloadBytes, err := json.Marshal(payload)
+			if err != nil {
+				return nil, err
+			}
+
+			addr := &url.URL{
+				Scheme:   "http",
+				Host:     host,
+				Path:     path,
+				RawQuery: v.Encode(),
+			}
+
+			request, err := http.NewRequest("POST", addr.String(), bytes.NewBuffer(payloadBytes))
+			if err != nil {
+				return nil, err
+			}
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Accept", "application/json")
+			return request, nil
 		}
 	)
-	return etl.NewHTTPPostMapper[etl.DBRecord[DeliveryDBRecord]](host, path, toRequestPayload)
+	return etl.NewHTTPPostMapper[etl.DBRecord[DeliveryDBRecord]](requestBuilder)
 }
 
 func DummySource() etl.ElementSource[string] {
