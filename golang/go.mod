@@ -2,7 +2,7 @@ module etl
 
 go 1.23.2
 
-replace github.com/customerio/services => /Users/rchaki/code/services
+replace github.com/customerio/services => ../../services
 
 require (
 	github.com/customerio/services v0.0.0-20220119193552-3b3b3b3b3b3b
