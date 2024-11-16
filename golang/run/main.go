@@ -10,10 +10,9 @@ import (
 	"github.com/customerio/services/campaigns/subjects"
 	"github.com/customerio/services/ciocontext"
 	"github.com/customerio/services/ciofdb"
-	"github.com/customerio/services/ingress"
 	"github.com/customerio/services/scripts_rc"
 	"github.com/customerio/services/server"
-	ui_api "github.com/customerio/services/ui_api/run"
+	ui_api_inits "github.com/customerio/services/ui_api/run"
 	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"net/http"
@@ -80,7 +79,7 @@ func NewLogger(runId string) (*zap.Logger, error) {
 }
 func main() {
 	server.Run(
-		server.WithInit(ciofdb.Init, subjects.Init, ui_api.InitLiquid, ingress.InitConnPool),
+		server.WithInit(ciofdb.Init, subjects.Init, ui_api_inits.Init),
 		server.WithOnce(RunETL),
 	)
 }
