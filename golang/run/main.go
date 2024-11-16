@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"etl"
 	"fmt"
 	"go.uber.org/zap"
-	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -21,7 +19,7 @@ func RunETL(ctx context.Context, runId string, logger *zap.Logger) error {
 		return err
 	}
 	now := time.Now()
-	outputDir := homeDir + "/data/deliveries_" + strings.ReplaceAll(strings.ReplaceAll(now.Format(time.DateTime), " ", "_"), ":", "-")
+	outputDir := homeDir + "/data/deliveries_" + runId
 	readParallelismPerShard := 10
 	writeParallelismPerShard := 10
 	recordBatchSize := 100
@@ -71,6 +69,8 @@ func NewLogger(runId string) (*zap.Logger, error) {
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	defer cancel()
+
 	runId := strings.ReplaceAll(strings.ReplaceAll(time.Now().Format(time.DateTime), " ", "_"), ":", "-")
 	logger, _ := NewLogger(runId)
 	err := RunETL(ctx, runId, logger)
@@ -107,7 +107,7 @@ func cioDeliveryExtract() etl.ElementProcessor[etl.DBRecord[DeliveryDBRecord]] {
 			return payloadBytes, nil
 		}
 	)
-	return NewHTTPPostMapper[etl.DBRecord[DeliveryDBRecord]](host, path, toRequestPayload)
+	return etl.NewHTTPPostMapper[etl.DBRecord[DeliveryDBRecord]](host, path, toRequestPayload)
 }
 
 func DummySource() etl.ElementSource[string] {
@@ -132,78 +132,4 @@ func DummySource() etl.ElementSource[string] {
 	}
 	return etl.NewSliceSource[string](uuids, 2)
 
-}
-
-type IdentityMapper[T any] struct {
-}
-
-func NewIdentityMapper[T any]() etl.ElementProcessor[etl.DBRecord[T]] {
-	return &IdentityMapper[T]{}
-}
-
-func (s IdentityMapper[T]) ProcessBatch(records []*etl.DBRecord[T]) ([]*etl.ProcessedRecord, error) {
-	var processedRecords []*etl.ProcessedRecord
-	for _, record := range records {
-		processedRecords = append(processedRecords, s.Process(record))
-	}
-	return processedRecords, nil
-}
-
-func (s IdentityMapper[T]) Process(record *etl.DBRecord[T]) *etl.ProcessedRecord {
-	return &etl.ProcessedRecord{
-		Id:     record.Id,
-		Record: record,
-	}
-}
-
-type HTTPMapper[T any] struct {
-	host             string
-	path             string
-	toRequestPayload func(record []*T) ([]byte, error)
-}
-
-func NewHTTPPostMapper[T any](host string, path string, toRequestPayload func(record []*T) ([]byte, error)) etl.ElementProcessor[T] {
-	return &HTTPMapper[T]{
-		host:             host,
-		path:             path,
-		toRequestPayload: toRequestPayload,
-	}
-
-}
-func (s *HTTPMapper[T]) Process(t *T) *etl.ProcessedRecord {
-	return nil
-}
-func (s *HTTPMapper[T]) ProcessBatch(records []*T) ([]*etl.ProcessedRecord, error) {
-	if len(records) == 0 {
-		return []*etl.ProcessedRecord{}, nil
-	}
-	requestPayload, err := s.toRequestPayload(records)
-	if err != nil {
-		return nil, err
-	}
-	response, err := http.DefaultClient.Post(
-		fmt.Sprintf("http://%s/%s", s.host, s.path),
-		"application/json",
-		bytes.NewBuffer(requestPayload),
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code %d", response.StatusCode)
-	}
-	var transformedRecords []map[string]interface{}
-	err = json.NewDecoder(response.Body).Decode(&transformedRecords)
-	if err != nil {
-		return nil, err
-	}
-	var processedRecords []*etl.ProcessedRecord
-	for _, record := range transformedRecords {
-		processedRecords = append(processedRecords, &etl.ProcessedRecord{
-			Id:     record["Id"],
-			Record: record,
-		})
-	}
-	return processedRecords, nil
 }

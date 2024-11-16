@@ -8,11 +8,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-type ElementProcessor[T any] interface {
-	Process(*T) *ProcessedRecord
-	ProcessBatch([]*T) ([]*ProcessedRecord, error)
-}
-
 func ExecuteAll[T any](
 	ctx context.Context,
 	source ElementSource[T],
@@ -34,7 +29,7 @@ func ExecuteAll[T any](
 	var tasks errgroup.Group
 	for _, shard := range shards {
 		l := logger.With(zap.String("shard", shard.Id()))
-		worker := NewShardWorker[T](ctx, shard.Id(), readBufferSize, l)
+		worker := NewShardWorker[T](shard.Id(), readBufferSize, l)
 		tasks.Go(func() error {
 			err := worker.Consume(ctx, shard, readParallelismPerShard, readRecordsBatchSize, func(metrics WorkerMetrics) {
 				readProgressUpdater.Updates <- map[string]WorkerMetrics{shard.Id(): metrics}
@@ -76,7 +71,7 @@ func ExecuteAll[T any](
 }
 
 func buildProgressUpdaters(readBuffer, writeBuffer int) (*ProgressUpdater, *ProgressUpdater) {
-	readUpdater := NewProgressUpdater(5*time.Second, readBuffer)
-	writeUpdater := NewProgressUpdater(5*time.Second, writeBuffer)
+	readUpdater := NewProgressUpdater(2*time.Second, readBuffer)
+	writeUpdater := NewProgressUpdater(2*time.Second, writeBuffer)
 	return readUpdater, writeUpdater
 }

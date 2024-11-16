@@ -26,7 +26,6 @@ func NewShardWorker[T any](
 	logger *zap.Logger,
 ) *ShardWorker[T] {
 	return &ShardWorker[T]{
-		ctx:    ctx,
 		Id:     id,
 		logger: logger,
 		buffer: make(chan PartitionRecordBatch[T], readBufferSize),
@@ -34,6 +33,7 @@ func NewShardWorker[T any](
 }
 
 func (s *ShardWorker[T]) Produce(
+	ctx context.Context,
 	processor ElementProcessor[T],
 	sinkFactory ElementWriterFactory,
 	writeParallelism int,
@@ -56,10 +56,11 @@ func (s *ShardWorker[T]) Produce(
 				}
 			}(sink)
 			logger.Info("Shard Producer started")
-
 		Loop:
 			for {
 				select {
+				case <-ctx.Done():
+					return nil
 				case inputBatch, ok := <-s.buffer:
 					if !ok {
 						logger.Info("Shard BufferChannel closed")
@@ -143,12 +144,18 @@ func (s *ShardWorker[T]) Consume(
 			pendingWork := true
 			for pendingWork && (maxBatchesPerChunk == 0 || batchesToBeFetched <= maxBatchesPerChunk) {
 				select {
-				case <-s.ctx.Done():
+				case <-ctx.Done():
 					return nil
 				default:
 				}
 				pendingWork = false
 				for _, partition := range partitionsInChunk {
+					select {
+					case <-ctx.Done():
+						return nil
+					default:
+					}
+
 					if !partition.Done() {
 						pendingWork = true
 						recordsBatch, offset, err := partition.NextBatch(resource, readBatchSize)
