@@ -7,10 +7,14 @@ import (
 	"encoding/json"
 	"etl"
 	"fmt"
+	"github.com/customerio/services/ciocontext"
+	"github.com/customerio/services/scripts_rc/render_requests"
+	"github.com/pkg/errors"
 	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,8 +26,8 @@ func RunETL(ctx context.Context, runId string, logger *zap.Logger) error {
 	}
 	now := time.Now()
 	outputDir := homeDir + "/data/deliveries_" + runId
-	readParallelismPerShard := 2
-	writeParallelismPerShard := 2
+	readParallelismPerShard := 10
+	writeParallelismPerShard := 10
 	recordBatchSize := 50
 	sinkFactory := etl.NewFSSinkFactory(outputDir, etl.ENCODER_JSON)
 	var hosts = CIO_HOSTS // []string{"localhost"}
@@ -41,7 +45,7 @@ func RunETL(ctx context.Context, runId string, logger *zap.Logger) error {
 		writeParallelismPerShard,
 		100,
 		recordBatchSize,
-		cioDeliveryExtract(),
+		NewDeliverRenderRequestProcessor(),
 		sinkFactory,
 		logger,
 	)
@@ -87,7 +91,7 @@ type DeliveryDBRecord struct {
 
 var CIO_HOSTS = []string{"shard-106462", "shard-111029", "shard-111991", "shard-114543", "shard-130145", "shard-131014", "shard-136108", "shard-154874", "shard-167241", "shard-24088", "shard-45402", "shard-63391", "shard-64420", "shard-66525", "shard-88438", "shard-92778", "shard-93295", "shard-a", "shard-b", "shard-c", "shard-d", "shard-e", "shard-f", "shard-g", "shard-h", "shard-i", "shard-j", "shard-k", "shard-l", "shard-lee-1", "shard-m", "shard-n", "shard-o", "shard-p", "shard-q", "shard-r", "shard-s", "shard-t", "shard-u"}
 
-func cioDeliveryExtract() etl.ElementProcessor[etl.DBRecord[DeliveryDBRecord]] {
+func cioDeliveryExtractHttp() etl.ElementProcessor[etl.DBRecord[DeliveryDBRecord]] {
 	var (
 		host           = "0.0.0.0:9037"
 		path           = "v1/rc/render_deliveries"
@@ -125,6 +129,62 @@ func cioDeliveryExtract() etl.ElementProcessor[etl.DBRecord[DeliveryDBRecord]] {
 		}
 	)
 	return etl.NewHTTPPostMapper[etl.DBRecord[DeliveryDBRecord]](requestBuilder)
+}
+
+type DeliverRenderRequest struct {
+}
+
+func NewDeliverRenderRequestProcessor() etl.ElementProcessor[etl.DBRecord[DeliveryDBRecord]] {
+	return &DeliverRenderRequest{}
+}
+
+func (d *DeliverRenderRequest) Process(record *etl.DBRecord[DeliveryDBRecord]) *etl.ProcessedRecord {
+	batch, err := d.ProcessBatch([]*etl.DBRecord[DeliveryDBRecord]{record})
+	if err != nil {
+		return &etl.ProcessedRecord{
+			Id:  record.Id,
+			Err: err,
+		}
+	}
+	if len(batch) == 0 {
+		return &etl.ProcessedRecord{
+			Id:  record.Id,
+			Err: errors.New("Transformer Returned Empty Result"),
+		}
+	}
+	return batch[0]
+
+}
+
+func (d *DeliverRenderRequest) ProcessBatch(records []*etl.DBRecord[DeliveryDBRecord]) ([]*etl.ProcessedRecord, error) {
+	env, err := strconv.Atoi(strings.Split(records[0].DataBase, "production_env")[1])
+	if err != nil {
+		return nil, err
+	}
+	ctx := ciocontext.NewEnv(context.Background(), env)
+	var uuids [][]byte
+	for _, record := range records {
+		uuids = append(uuids, record.Record.Id)
+	}
+	results, err := render_requests.DeliveryRenderRequest(ctx, uuids)
+	if err != nil {
+		return nil, err
+	}
+	var processedRecords []*etl.ProcessedRecord
+	for _, result := range results {
+		if result.Err != "" {
+			processedRecords = append(processedRecords, &etl.ProcessedRecord{
+				Id:  result.Id,
+				Err: errors.New(result.Err),
+			})
+			continue
+		}
+		processedRecords = append(processedRecords, &etl.ProcessedRecord{
+			Id:     result.Id,
+			Record: result,
+		})
+	}
+	return processedRecords, nil
 }
 
 func DummySource() etl.ElementSource[string] {
